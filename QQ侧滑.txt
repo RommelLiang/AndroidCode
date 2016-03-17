@@ -1,0 +1,347 @@
+转载请表明出处：http://blog.csdn.net/lmj623565791/article/details/22961279
+
+
+在CSDN上开了很多大神们的文章，感觉受益良多，也非常欣赏大家的分享态度，所以决定开始写微博，给大家分享自己的心得。
+
+本来准备在ListView的每个Item的布局上设置一个隐藏的Button，当滑动的时候显示。但是因为每次只要存在一个Button，发现每个Item上的Button相互间不好控制。所以决定继承ListView然后结合PopupWindow。
+
+首先是布局文件：
+
+delete_btn.xml：这里只需要一个Button
+
+
+
+
+
+
+
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片 
+
+ <?xml version="1.0" encoding="utf-8"?>  
+ <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"  
+     android:layout_width="wrap_content"  
+android:layout_height="wrap_content"  
+android:orientation="vertical" >  
+<Button   
+android:id="@+id/id_item_btn"  
+android:layout_width="60dp"  
+android:singleLine="true"  
+         android:layout_height="wrap_content"  
+android:text="删除"  
+android:background="@drawable/d_delete_btn"  
+android:textColor="#ffffff"  
+android:paddingLeft="15dp"  
+         android:paddingRight="15dp"  
+android:layout_alignParentRight="true"  
+android:layout_centerVertical="true"  
+android:layout_marginRight="15dp"  
+/>  
+</LinearLayout>  
+主布局文件：activity_main.xml，ListView的每个Item的样式直接使用了系统的android.R.layout.simple_list_item_1 
+
+
+
+
+
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片 
+
+ <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"  
+     xmlns:tools="http://schemas.android.com/tools"  
+    android:layout_width="match_parent"  
+     android:layout_height="match_parent" >  
+   
+     <com.example.listviewitemslidedeletebtnshow.QQListView  
+         android:id="@+id/id_listview"  
+         android:layout_width="fill_parent"  
+         android:layout_height="wrap_content" >    
+ </com.example.listviewitemslidedeletebtnshow.QQListView>  
+ 
+ </RelativeLayout>  
+接下来看看QQListView的实现： 
+
+
+
+
+
+
+[java] view plaincopy在CODE上查看代码片派生到我的代码片 
+
+01. package com.example.listviewitemslidedeletebtnshow;  
+02.   
+03. import android.content.Context;  
+04. import android.util.AttributeSet;  
+05. import android.view.Gravity;  
+06. import android.view.LayoutInflater;  
+07. import android.view.MotionEvent;  
+08. import android.view.View;  
+09. import android.view.ViewConfiguration;  
+10. import android.widget.Button;  
+11. import android.widget.LinearLayout;  
+12. import android.widget.ListView;  
+13. import android.widget.PopupWindow;  
+14.   
+15. public class QQListView extends ListView  
+16. {  
+17.   
+18.     private static final String TAG = "QQlistView";  
+19.   
+20.     // private static final int VELOCITY_SANP = 200;  
+21.     // private VelocityTracker mVelocityTracker;  
+22.     /** 
+23.      * 用户滑动的最小距离 
+24.      */  
+25.     private int touchSlop;  
+26.   
+27.     /** 
+28.      * 是否响应滑动 
+29.      */  
+30.     private boolean isSliding;  
+31.   
+32.     /** 
+33.      * 手指按下时的x坐标 
+34.      */  
+35.     private int xDown;  
+36.     /** 
+37.      * 手指按下时的y坐标 
+38.      */  
+39.     private int yDown;  
+40.     /** 
+41.      * 手指移动时的x坐标 
+42.      */  
+43.     private int xMove;  
+44.     /** 
+45.      * 手指移动时的y坐标 
+46.      */  
+47.     private int yMove;  
+48.   
+49.     private LayoutInflater mInflater;  
+50.   
+51.     private PopupWindow mPopupWindow;  
+52.     private int mPopupWindowHeight;  
+53.     private int mPopupWindowWidth;  
+54.   
+55.     private Button mDelBtn;  
+56.     /** 
+57.      * 为删除按钮提供一个回调接口 
+58.      */  
+59.     private DelButtonClickListener mListener;  
+60.   
+61.     /** 
+62.      * 当前手指触摸的View 
+63.      */  
+64.     private View mCurrentView;  
+65.   
+66.     /** 
+67.      * 当前手指触摸的位置 
+68.      */  
+69.     private int mCurrentViewPos;  
+70.   
+71.     /** 
+72.      * 必要的一些初始化 
+73.      *  
+74.      * @param context 
+75.      * @param attrs 
+76.      */  
+77.     public QQListView(Context context, AttributeSet attrs)  
+78.     {  
+79.         super(context, attrs);  
+80.   
+81.         mInflater = LayoutInflater.from(context);  
+82.         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();  
+83.   
+84.         View view = mInflater.inflate(R.layout.delete_btn, null);  
+85.         mDelBtn = (Button) view.findViewById(R.id.id_item_btn);  
+86.         mPopupWindow = new PopupWindow(view, LinearLayout.LayoutParams.WRAP_CONTENT,  
+87.                 LinearLayout.LayoutParams.WRAP_CONTENT);  
+88.         /** 
+89.          * 先调用下measure,否则拿不到宽和高 
+90.          */  
+91.         mPopupWindow.getContentView().measure(0, 0);  
+92.         mPopupWindowHeight = mPopupWindow.getContentView().getMeasuredHeight();  
+93.         mPopupWindowWidth = mPopupWindow.getContentView().getMeasuredWidth();  
+94.     }  
+95.   
+96.     @Override  
+97.     public boolean dispatchTouchEvent(MotionEvent ev)  
+98.     {  
+99.         int action = ev.getAction();  
+100.         int x = (int) ev.getX();  
+101.         int y = (int) ev.getY();  
+102.         switch (action)  
+103.         {  
+104.   
+105.         case MotionEvent.ACTION_DOWN:  
+106.             xDown = x;  
+107.             yDown = y;  
+108.             /** 
+109.              * 如果当前popupWindow显示，则直接隐藏，然后屏蔽ListView的touch事件的下传 
+110.              */  
+111.             if (mPopupWindow.isShowing())  
+112.             {  
+113.                 dismissPopWindow();  
+114.                 return false;  
+115.             }  
+116.             // 获得当前手指按下时的item的位置  
+117.             mCurrentViewPos = pointToPosition(xDown, yDown);  
+118.             // 获得当前手指按下时的item  
+119.             View view = getChildAt(mCurrentViewPos - getFirstVisiblePosition());  
+120.             mCurrentView = view;  
+121.             break;  
+122.         case MotionEvent.ACTION_MOVE:  
+123.             xMove = x;  
+124.             yMove = y;  
+125.             int dx = xMove - xDown;  
+126.             int dy = yMove - yDown;  
+127.             /** 
+128.              * 判断是否是从右到左的滑动 
+129.              */  
+130.             if (xMove < xDown && Math.abs(dx) > touchSlop && Math.abs(dy) < touchSlop)  
+131.             {  
+132.                 // Log.e(TAG, "touchslop = " + touchSlop + " , dx = " + dx +  
+133.                 // " , dy = " + dy);  
+134.                 isSliding = true;  
+135.             }  
+136.             break;  
+137.         }  
+138.         return super.dispatchTouchEvent(ev);  
+139.     }  
+140.   
+141.     @Override  
+142.     public boolean onTouchEvent(MotionEvent ev)  
+143.     {  
+144.         int action = ev.getAction();  
+145.         /** 
+146.          * 如果是从右到左的滑动才相应 
+147.          */  
+148.         if (isSliding)  
+149.         {  
+150.             switch (action)  
+151.             {  
+152.             case MotionEvent.ACTION_MOVE:  
+153.   
+154.                 int[] location = new int[2];  
+155.                 // 获得当前item的位置x与y  
+156.                 mCurrentView.getLocationOnScreen(location);  
+157.                 // 设置popupWindow的动画  
+158.                 mPopupWindow.setAnimationStyle(R.style.popwindow_delete_btn_anim_style);  
+159.                 mPopupWindow.update();  
+160.                 mPopupWindow.showAtLocation(mCurrentView, Gravity.LEFT | Gravity.TOP,  
+161.                         location[0] + mCurrentView.getWidth(), location[1] + mCurrentView.getHeight() / 2  
+162.                                 - mPopupWindowHeight / 2);  
+163.                 // 设置删除按钮的回调  
+164.                 mDelBtn.setOnClickListener(new OnClickListener()  
+165.                 {  
+166.                     @Override  
+167.                     public void onClick(View v)  
+168.                     {  
+169.                         if (mListener != null)  
+170.                         {  
+171.                             mListener.clickHappend(mCurrentViewPos);  
+172.                             mPopupWindow.dismiss();  
+173.                         }  
+174.                     }  
+175.                 });  
+176.                 // Log.e(TAG, "mPopupWindow.getHeight()=" + mPopupWindowHeight);  
+177.   
+178.                 break;  
+179.             case MotionEvent.ACTION_UP:  
+180.                 isSliding = false;  
+181.   
+182.             }  
+183.             // 相应滑动期间屏幕itemClick事件，避免发生冲突  
+184.             return true;  
+185.         }  
+186.   
+187.         return super.onTouchEvent(ev);  
+188.     }  
+189.   
+190.     /** 
+191.      * 隐藏popupWindow 
+192.      */  
+193.     private void dismissPopWindow()  
+194.     {  
+195.         if (mPopupWindow != null && mPopupWindow.isShowing())  
+196.         {  
+197.             mPopupWindow.dismiss();  
+198.         }  
+199.     }  
+200.   
+201.     public void setDelButtonClickListener(DelButtonClickListener listener)  
+202.     {  
+203.         mListener = listener;  
+204.     }  
+205.   
+206.     interface DelButtonClickListener  
+207.     {  
+208.         public void clickHappend(int position);  
+209.     }  
+210.   
+211. }  
+代码注释写得很详细，简单说一下，在dispatchTouchEvent中设置当前是否响应用户滑动，然后在onTouchEvent中判断是否响应，如果响应则popupWindow以动画的形式展示出来。当然屏幕上如果存在PopupWindow则屏幕ListView的滚动与Item的点击，以及从右到左滑动时屏幕Item的click事件。 
+
+
+接下来是MainActivity.java，这里代码很简单不做介绍了。
+
+
+
+
+
+[java] view plaincopy在CODE上查看代码片派生到我的代码片 
+
+01. package com.example.listviewitemslidedeletebtnshow;  
+02.   
+03. import java.util.ArrayList;  
+04. import java.util.Arrays;  
+05. import java.util.List;  
+06.   
+07. import android.app.Activity;  
+08. import android.os.Bundle;  
+09. import android.view.View;  
+10. import android.widget.AdapterView;  
+11. import android.widget.AdapterView.OnItemClickListener;  
+12. import android.widget.ArrayAdapter;  
+13. import android.widget.Toast;  
+14.   
+15. import com.example.listviewitemslidedeletebtnshow.QQListView.DelButtonClickListener;  
+16.   
+17. public class MainActivity extends Activity  
+18. {  
+19.     private QQListView mListView;  
+20.     private ArrayAdapter<String> mAdapter;  
+21.     private List<String> mDatas;  
+22.   
+23.     @Override  
+24.     protected void onCreate(Bundle savedInstanceState)  
+25.     {  
+26.         super.onCreate(savedInstanceState);  
+27.         setContentView(R.layout.activity_main);  
+28.   
+29.         mListView = (QQListView) findViewById(R.id.id_listview);  
+30.         // 不要直接Arrays.asList  
+31.         mDatas = new ArrayList<String>(Arrays.asList("HelloWorld", "Welcome", "Java", "Android", "Servlet", "Struts",  
+32.                 "Hibernate", "Spring", "HTML5", "Javascript", "Lucene"));  
+33.         mAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, mDatas);  
+34.         mListView.setAdapter(mAdapter);  
+35.   
+36.         mListView.setDelButtonClickListener(new DelButtonClickListener()  
+37.         {  
+38.             @Override  
+39.             public void clickHappend(final int position)  
+40.             {  
+41.                 Toast.makeText(MainActivity.this, position + " : " + mAdapter.getItem(position), 1).show();  
+42.                 mAdapter.remove(mAdapter.getItem(position));  
+43.             }  
+44.         });  
+45.   
+46.         mListView.setOnItemClickListener(new OnItemClickListener()  
+47.         {  
+48.             @Override  
+49.             public void onItemClick(AdapterView<?> parent, View view, int position, long id)  
+50.             {  
+51.                 Toast.makeText(MainActivity.this, position + " : " + mAdapter.getItem(position), 1).show();  
+52.             }  
+53.         });  
+54.     }  
+55. }  

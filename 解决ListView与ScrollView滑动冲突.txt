@@ -1,0 +1,340 @@
+http://bbs.anzhuo.cn/thread-982250-1-1.html
+在工作中，曾多次碰到ScrollView嵌套ListView的问题，网上的解决方法有很多种，但是杂而不全。我试过很多种方法，它们各有利弊。
+
+在这里我将会从使用ScrollView嵌套ListView结构的原因、这个结构碰到的问题、几种解决方案和优缺点比较，这4个方面来为大家阐述、分析、总结。
+
+实际上不光是ListView，其他继承自AbsListView的类也适用，包括ExpandableListView、GridView等等，为了方便说明，以下均用ListView来代表。
+
+
+一、 为什么要使用ScrollView嵌套ListView的奇怪的结构        
+
+
+ScrollView和ListView都是滚动结构，按理说，这两个控件在UI上的功能是一样的，但是看看下面这个设计：
+
+       141.png 
+
+
+
+
+
+
+
+    这是天猫商城的确认订单的页面，ScrollView中嵌套了ExpandableListView，ExpandableListView上面有固定的一些控件，下面也有固定的一些控件，整体又要能够滚动。    列表数据要嵌在固定数据中间，并且作为整体一起滚动，有了这样的设计需求，于是就有了ScrollView嵌套ListView的奇怪结构。
+
+
+
+二、 ScrollView、ListView嵌套结构碰到的问题   
+
+
+
+
+不多说，直接看失败例子：   
+
+
+1.
+2.    <ScrollView
+3.    android:id="@+id/act_solution_1_sv"
+4.    android:layout_width="fill_parent"
+5.    android:layout_height="fill_parent">
+6.    <LinearLayout
+7.        android:layout_width="fill_parent"
+8.        android:layout_height="wrap_content"
+9.        android:orientation="vertical">
+10.        <TextView
+11.            android:layout_width="fill_parent"
+12.            android:layout_height="wrap_content"
+13.            android:text="\nListView上方数据\n" />
+14.
+15.        <ListView
+16.            android:id="@+id/act_solution_1_lv"
+17.            android:layout_width="fill_parent"
+18.            android:layout_height="wrap_content">
+19.
+20.        </ListView>
+21.
+22.        <TextView
+23.            android:layout_width="fill_parent"
+24.            android:layout_height="wrap_content"
+25.            android:text="\nListView下方数据\n" />
+26.    </LinearLayout>
+27.    </ScrollView>
+
+
+
+
+
+
+
+
+    ScrollView中只能放一个控件，一般都放LinearLayout，orientation属性值为vertical。在LinearLayout中放需要呈现的内容。ListView也在其中，ListView的高度设为适应自身内容（wrap_content）。粗略一看，应该没有什么问题。但是看下面的实际效果图：  
+
+        142.png 
+
+
+
+
+
+
+
+    图中黑框的部分就是ListView，里面放了20条数据，但是却只显示了1条。
+    控件的属性设置上没有问题，但是为什么没有按照我的想法走呢？
+    看看下面这个图：
+     143.png 
+
+
+
+
+
+
+
+
+    是否有点明白了呢？原因就是scroll事件的消费处理以及ListView控件的高度设定问题。
+    虽然我看源码也看了不少，但是要说出来却不知到该怎么下手，我是大概知道原因，但是不知道怎么整理完全。求高手赐教…
+
+
+
+
+三、问题解决方案
+
+1、手动设置ListView高度
+    经过测试发现，在xml中直接指定ListView的高度，是可以解决这个问题的，但是ListView中的数据是可变的，实际高度还需要实际测量。于是手动代码设置ListView高度的方法就诞生了。
+
+1./**
+2.* 动态设置ListView的高度
+3.* @param listView
+4.*/
+5.public static void setListViewHeightBasedOnChildren(ListView listView) {
+6.    if(listView == null) return;
+7.
+8.    ListAdapter listAdapter = listView.getAdapter();
+9.    if (listAdapter == null) {
+10.        // pre-condition
+11.        return;
+12.    }
+13.
+14.    int totalHeight = 0;
+15.    for (int i = 0; i < listAdapter.getCount(); i++) {
+16.        View listItem = listAdapter.getView(i, null, listView);
+17.        listItem.measure(0, 0);
+18.        totalHeight += listItem.getMeasuredHeight();
+19.    }
+20.
+21.    ViewGroup.LayoutParams params = listView.getLayoutParams();
+22.    params.height = totalHeight + (listView.getDividerHeight() * (listAdapter.getCount() - 1));
+23.    listView.setLayoutParams(params);
+24.}
+
+
+
+
+    上面这个方法就是设定ListView的高度了，在为ListView设置了Adapter之后使用，就可以解决问题了。
+    但是这个方法有个两个细节需要注意：
+        一是Adapter中getView方法返回的View的必须由LinearLayout组成，因为只有LinearLayout才有measure()方法，如果使用其他的布局如RelativeLayout，在调用listItem.measure(0, 0);时就会抛异常，因为除LinearLayout外的其他布局的这个方法就是直接抛异常的，没理由…。我最初使用的就是这个方法，但是因为子控件的顶层布局是RelativeLayout，所以一直报错，不得不放弃这个方法。
+        二是需要手动把ScrollView滚动至最顶端，因为使用这个方法的话，默认在ScrollView顶端的项是ListView，具体原因不了解，求大神解答…可以在Activity中设置：
+1.sv = (ScrollView) findViewById(R.id.act_solution_1_sv);
+
+
+
+2、使用单个ListView取代ScrollView中所有内容
+    这个方法是我在试了几个方法都失败的情况下自己琢磨出来的。
+    用一张图来解释这个方法的思想：
+     144.png 
+
+
+
+
+ 
+
+
+    就是说，把整个需要放在ScrollView中的内容，统统放在ListView中，原ListView上方的数据和下方数据，都作为现ListView的一个itemView，和原ListView中的单条数据是平级的关系。
+    xml布局方面十分简单：
+
+1.<ListView
+2.    android:id="@+id/act_solution_2_lv"
+3.    android:layout_width="fill_parent"
+4.    android:layout_height="wrap_content">
+5.
+6.</ListView>
+7.
+
+
+
+
+    一个单独的ListView就可以了。
+    原ListView上方数据和下方数据，都写进两个xml布局文件中：
+
+     
+     Java代码方面，需要自定义一个Adapter，在Adapter中的getView方法中进行position值的判断，根据position值来决定inflate哪个布局：
+1.public View getView(int position, View convertView, ViewGroup parent) {
+2.            //列表第一项
+3.    if(position == 0){
+4.       convertView = inflater.inflate(R.layout.item_solution2_top, null);
+5.        return convertView;
+6.    }
+7.            //列表最后一项
+8.    else if(position == 21){
+9.        convertView = inflater.inflate(R.layout.item_solution2_bottom, null);
+10.        return convertView;
+11.    }
+12.
+13.            //普通列表项
+14.    ViewHolder h = null;
+15.    if(convertView == null || convertView.getTag() == null){
+16.        convertView = inflater.inflate(R.layout.item_listview_data, null);
+17.        h = new ViewHolder();
+18.        h.tv = (TextView) convertView.findViewById(R.id.item_listview_data_tv);
+19.        convertView.setTag(h);
+20.    }else{
+21.        h = (ViewHolder) convertView.getTag();
+22.    }
+23.
+24.    h.tv.setText("第"+ position + "条数据");
+25.
+26.    return convertView;
+27.}
+28.
+
+
+
+    在Activty中，只需要直接为ListView设置自定义的Adapter就行了。
+1.lv = (ListView) findViewById(R.id.act_solution_2_lv);
+2.adapter = new AdapterForListView2(this);
+3.lv.setAdapter(adapter);
+4.
+
+
+
+
+3、使用LinearLayout取代ListView
+    既然ListView不能适应ScrollView，那就换一个可以适应ScrollView的控件，干嘛非要吊死在ListView这一棵树上呢？而LinearLayout是最好的选择。但如果我仍想继续使用已经定义好的Adater呢？我们只需要自定义一个类继承自LinearLayout，为其加上对BaseAdapter的适配。
+1.import android.content.Context;
+2.import android.util.AttributeSet;
+3.import android.util.Log;
+4.import android.view.View;
+5.import android.widget.BaseAdapter;
+6.import android.widget.LinearLayout;
+7.
+8./**
+9.* 取代ListView的LinearLayout，使之能够成功嵌套在ScrollView中
+10.* @author terry_龙
+11.*/
+12.public class LinearLayoutForListView extends LinearLayout {
+13.
+14.    private BaseAdapter adapter;
+15.    private OnClickListener onClickListener = null;
+16.
+17.    /**
+18.     * 绑定布局
+19.     */
+20.    public void bindLinearLayout() {
+21.        int count = adapter.getCount();
+22.        this.removeAllViews();
+23.        for (int i = 0; i < count; i++) {
+24.            View v = adapter.getView(i, null, null);
+25.
+26.            v.setOnClickListener(this.onClickListener);
+27.            addView(v, i);
+28.        }
+29.       Log.v("countTAG", "" + count);
+30.    }
+31.
+32.    public LinearLayoutForListView(Context context) {
+33.        super(context);
+
+
+
+    上面的代码拷贝保存为LinearLayoutForListView.class，或者直接拷贝Demo中的这个类在自己的工程里。我们只需要把原来xml布局文件中的ListView替换为这个类就行了：
+1.<pm.nestificationbetweenscrollviewandabslistview.mywidgets.LinearLayoutForListView
+2.    android:id="@+id/act_solution_3_mylinearlayout"
+3.    android:layout_width="fill_parent"
+4.    android:layout_height="wrap_content"
+5.    android:orientation="vertical" >
+6.</pm.nestificationbetweenscrollviewandabslistview.mywidgets.LinearLayoutForListView>
+7.
+
+
+
+    在Activity中也把ListView改成LinearLayoutForListView，就能成功运行了。
+1.mylinearlayout = (LinearLayoutForListView) findViewById(R.id.act_solution_3_mylinearlayout);
+2.adapter = new AdapterForListView(this);
+3.mylinearlayout.setAdapter(adapter);
+4.
+
+
+
+
+
+4、自定义可适应ScrollView的ListView
+    这个方法和上面的方法是异曲同工，方法3是自定义了LinearLayout以取代ListView的功能，但如果我脾气就是倔，就是要用ListView怎么办？那就只好自定义一个类继承自ListView，通过重写其onMeasure方法，达到对ScrollView适配的效果。
+    下面是继承了ListView的自定义类：
+
+1.import android.content.Context;
+2.import android.util.AttributeSet;
+3.import android.widget.ListView;
+4.
+5.public class ListViewForScrollView extends ListView {
+6.    public ListViewForScrollView(Context context) {
+7.        super(context);
+8.    }
+9.
+10.    public ListViewForScrollView(Context context, AttributeSet attrs) {
+11.        super(context, attrs);
+12.    }
+13.
+14.    public ListViewForScrollView(Context context, AttributeSet attrs,
+15.        int defStyle) {
+16.        super(context, attrs, defStyle);
+17.    }
+18.
+19.    @Override
+20.    /**
+21.     * 重写该方法，达到使ListView适应ScrollView的效果
+22.     */
+23.    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+24.        int expandSpec = MeasureSpec.makeMeasureSpec(Integer.MAX_VALUE >> 2,
+25.        MeasureSpec.AT_MOST);
+26.        super.onMeasure(widthMeasureSpec, expandSpec);
+27.    }
+28.}
+29.
+
+
+
+    三个构造方法完全不用动，只要重写onMeasure方法，需要改动的地方比起方法3少了不是一点半点…
+    在xml布局中和Activty中使用的ListView改成这个自定义ListView就行了。代码就省了吧…
+    这个方法和方法1有一个同样的毛病，就是默认显示的首项是ListView，需要手动把ScrollView滚动至最顶端。
+1.sv = (ScrollView) findViewById(R.id.act_solution_4_sv);
+2.sv.smoothScrollTo(0, 0);
+3.
+
+
+
+
+5、设置ScrollView的属性，使ListView能够成功嵌套（无法达到预定效果）
+    这个方法是我在写Demo的时候找到的，第一反应是有这个方法我还写这个Demo干嘛，只要在布局文件中添加一个属性就搞定了。不过结果确实是ListView的大小把ScrollView的剩余部分填满了，但却不能滚动，真是个致命的问题…
+    不废话了，布局文件中：
+1.<ScrollView
+2.    android:id="@+id/act_solution_5_sv"
+3.    android:layout_width="fill_parent"
+4.    android:layout_height="fill_parent"
+5.    android:layout_below="@+id/act_solution_5_vg_top"
+6.    android:fillViewport="true">
+7.
+
+
+
+    设置fillViewport的属性为true即可。简单吧？
+    但是不能滚动这个致命的问题我却不知道该怎么解决了，继续求大神解答…
+
+
+四、几种种方法的优缺点比较
+
+    上面一共给出了4中亲测可用的方法，各自有使用条件，复杂程度也各不相同。
+    下面我来从几个方面来分析几种方法的优势和劣势。
+    方法1的优点是不用对使用的控件做任何修改，只需要使用一个现成的方法就好了，而最大的限制是ListView的item只能由LinearLayout这一个布局组成，对于一些复杂的布局就不适用了。如果你的工程急需解决这个问题，而且满足方法的使用条件，即ListView的item布局简单，完全有LinearLayout组成，你就只需要把setListViewHeightBasedOnChildren方法拿过去就行了。
+    方法2的优点是布局文件设计简单、Activity中的代码也很少，而缺点却是自定义Adapter变得十分复杂，而且执行效率会变低，因为findViewById是十分费时的操作，而使用ViewHolder结构可以解决费时的问题（有兴趣的童鞋可以去搜一艘ViewHolder结构），然而使用了方法2的话，会破坏这种结构。如果你的工程设计上偏简单，ListView子项相对少、ListView上下方数据少、子项间交互少的话，可以尝试一下。
+    方法3的优点是完全解决了ScrollView嵌套ListView的问题，同时代码较少，你甚至可以直接使用LinearLayout，而在Activity中手动为LinearLayout添加子项控件，不过需要注意的是，在添加前需要调用其removeAllViews的方法，否则可能会出现预想不到的事情，那时你会想念天国的ListView的。缺点不是很明显，但还是有两个：一是使用的不是系统控件，不能在xml布局的Graphical Layout视图中直接看到效果；二是不能向ListView那样可以使用ViewHolder结构，在加载大量子项时会费很多时间在findViewById中。如果你的列表数据比较少的话，不妨试试这个方法，除了不能使用ViewHolder结构，使用方法几乎和ListView一样。
+    方法4…比方法3更简单，代码更少，同时保留了ListView原有的所有方法，包括notifyDataSetChanged方法，相比其他方法是最趋近于完美的方法，只是需要在Activity中设定ScrollView滚动至顶端。如果你还在犹豫不决的话就选这个方法吧，我想我以后是只会用这个方法了…
+
+
+
